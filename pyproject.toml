@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sapwood-kv"
+version = "0.1.0"
+description = "Network-based disk KV cache for vLLM: session resume without recomputing context"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Sapwood" }]
+keywords = ["vllm", "kv-cache", "session-resume", "long-context", "disk-cache"]
+dependencies = []
+
+[project.scripts]
+sapwood-kv-server = "sapwood.server:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
