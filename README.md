@@ -37,7 +37,10 @@ Two halves, honestly weighted:
   GPU-resident; beyond that you'd add a retrieval policy and a window-size
   budget explicitly.
 - **Not a session-fork or branching store.** Sessions are append-only here.
-- **Not yet verified end-to-end against vLLM.** The runnable pieces are
+- **Not yet verified end-to-end against vLLM.** Until the
+  `docs/CONTAINER-RUNBOOK.md` checklist is green, the adapter is a
+  best-effort, single-step, synchronous bridge — not a production offloading
+  implementation. The runnable pieces are
   storage, protocol, server, and the resume manager (all covered by tests).
   The vLLM connector subclass (`src/sapwood/vllm_adapter.py`) is wired
   against the real vLLM 0.34.0rc1 `KVConnectorBase_V1` API — scheduler-side
@@ -66,11 +69,22 @@ architecture facts (from the model card's `config.json`):
   irrelevant to block-level KV storage. The disk cache stores KV bytes, not
   expert indices.
 - **GQA**: `num_attention_heads=24`, `num_key_value_heads=8`, `head_dim=128`.
-- **Looped core**: `loop_config = {core_start=6, core_end=18, num_passes=3}`.
-  The loop is not visible in vLLM's `model.py` (which iterates 24 layers once),
-  so its KV semantics are **unverified**. Treat the disk cache as correct for
-  the architectures vLLM already supports and confirm the looped-core behavior
-  on your machine.
+- **Looped core**: `loop_config = {core_start=6, core_end=18, num_passes=3, gate_rank=64, is_varloop=false}`.
+  The checkpoint (`thinkingmachines/Inkling-2-Mini`, `model_type: inkling2_loop`)
+  is a *looped transformer*: the middle 12 layers run 3 passes with shared
+  weights, giving **48 layer applications** per token from 24 layers of weights.
+  **vLLM 0.34.0rc1 has no loop implementation** — `vllm/models/inkling/`
+  iterates `num_hidden_layers` (24) once and the `inkling2_loop` architecture is
+  **not in vLLM's registry** (no file in the repo matches `inkling2`). The
+  checkpoint falls back to vLLM's transformers backend. The reference
+  implementation (`transformers/models/inkling2_loop`) runs the looped core
+  once per pass with **deep-copied per-pass KV cache layers** (24 + 2×12 = 48
+  cache entries) and re-receives messages between passes via attention-residual
+  `block_states`. The KV-cache layer layout the adapter stores is therefore
+  **unverified in vLLM** — treat it as correct for the architectures vLLM
+  already supports, and resolve the loop question in the container before
+  claiming the disk cache is correct for this checkpoint (see
+  `docs/CONTAINER-RUNBOOK.md`, section 0).
 
 The KV cache here operates at the **block level** (raw page bytes + a stable
 logical id). It is architecture-agnostic and stores one bundle per logical
@@ -356,7 +370,9 @@ engine (vLLM) does the actual recompute, ideally with a model-supplied
 
 1. ~~Wire `vllm_adapter.py`~~ — done against vLLM 0.34.0rc1 (scheduler/
    worker sides, store/load paths). Still **unverified** — needs an actual
-   engine run against the Inkling 2 Mini model in the target container.
+   engine run against the Inkling 2 Mini model in the target container
+   (see `docs/CONTAINER-RUNBOOK.md` for the runbook, with the looped-model
+   mismatch flagged as the first gate).
 2. Plug a real semantic relevance scorer into the assembly path (`scorer=`
    argument to `assemble_window` / `BlockSelectionPolicy.scorer`) — the
    current relevance is lexical only.
