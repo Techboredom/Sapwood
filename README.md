@@ -73,18 +73,16 @@ architecture facts (from the model card's `config.json`):
   The checkpoint (`thinkingmachines/Inkling-2-Mini`, `model_type: inkling2_loop`)
   is a *looped transformer*: the middle 12 layers run 3 passes with shared
   weights, giving **48 layer applications** per token from 24 layers of weights.
-  **vLLM 0.34.0rc1 has no loop implementation** — `vllm/models/inkling/`
-  iterates `num_hidden_layers` (24) once and the `inkling2_loop` architecture is
-  **not in vLLM's registry** (no file in the repo matches `inkling2`). The
-  checkpoint falls back to vLLM's transformers backend. The reference
-  implementation (`transformers/models/inkling2_loop`) runs the looped core
-  once per pass with **deep-copied per-pass KV cache layers** (24 + 2×12 = 48
-  cache entries) and re-receives messages between passes via attention-residual
-  `block_states`. The KV-cache layer layout the adapter stores is therefore
-  **unverified in vLLM** — treat it as correct for the architectures vLLM
-  already supports, and resolve the loop question in the container before
-  claiming the disk cache is correct for this checkpoint (see
-  `docs/CONTAINER-RUNBOOK.md`, section 0).
+  **vLLM 0.34.0rc1 has no loop implementation** — `vllm/models/inkling/` iterates
+  `num_hidden_layers` (24) once, and the `inkling2_loop` architecture is **not
+  in vLLM's registry** (no file in the repo matches `inkling2`). The checkpoint
+  falls back to vLLM's transformers backend, whose reference implementation
+  (`transformers/models/inkling2_loop`) runs the looped core once per pass with
+  **deep-copied per-pass KV cache layers** (24 + 2×12 = 48 cache entries). The
+  KV-cache layer layout the adapter stores is therefore **unverified in vLLM**
+  — see `docs/looped-architecture.md` for the full analysis and
+  `docs/CONTAINER-RUNBOOK.md` §0 for the decision gate before this checkpoint is
+  presented as supported.
 
 The KV cache here operates at the **block level** (raw page bytes + a stable
 logical id). It is architecture-agnostic and stores one bundle per logical
@@ -96,7 +94,8 @@ rehydratable into the engine's paged buffer. Confirmed on-by-construction but
   vLLM **0.34.0rc1** — see `src/sapwood/vllm_adapter.py` docstring),
 - the block size in tokens vLLM uses (`config.block_size`; read from
   `kv_cache_config.kv_cache_groups[*].kv_cache_spec.block_size`),
-- the exact semantics of the looped core (not visible in vLLM's model code).
+- the looped-core KV semantics (not implemented in vLLM — see
+  `docs/looped-architecture.md`).
 
 ## Architecture
 
